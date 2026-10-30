@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -38,7 +38,6 @@ namespace DellBatteryLimiter
                 try
                 {
                     Application.Run(new TrayContext());
-                    File.AppendAllText(logPath, DateTime.Now + " Application.Run termino normalmente\r\n");
                 }
                 catch (Exception ex)
                 {
@@ -78,7 +77,6 @@ namespace DellBatteryLimiter
                     }
                 }
 
-                // Se mantiene el handle vivo durante toda la vida del proceso (evita icono invalido)
                 IntPtr hIcon = bmp.GetHicon();
                 return Icon.FromHandle(hIcon);
             }
@@ -119,7 +117,6 @@ namespace DellBatteryLimiter
                 using (FileStream fs = new FileStream(filePath, FileMode.Create, FileAccess.Write))
                 using (BinaryWriter bw = new BinaryWriter(fs))
                 {
-                    // Header ICO con payload PNG de 64x64 (soportado desde Windows Vista/10/11)
                     bw.Write((short)0);
                     bw.Write((short)1);
                     bw.Write((short)1);
@@ -144,6 +141,7 @@ namespace DellBatteryLimiter
         private readonly Icon _redIcon;
         private readonly ToolStripMenuItem _limitItem;
         private readonly ToolStripMenuItem _unlimitItem;
+        private readonly ToolStripMenuItem _customItem;
         private readonly ToolStripMenuItem _startupItem;
         private readonly System.Windows.Forms.Timer _syncTimer;
 
@@ -156,6 +154,8 @@ namespace DellBatteryLimiter
         private const string AppRunName = "DellBatteryLimiterTray";
 
         private bool _isLimited = true;
+        private int _startPct = 50;
+        private int _stopPct = 80;
         private DateTime _lastStateWrite = DateTime.MinValue;
 
         public TrayContext()
@@ -176,11 +176,14 @@ namespace DellBatteryLimiter
 
             ContextMenuStrip menu = new ContextMenuStrip();
 
-            _limitItem = new ToolStripMenuItem("\uD83D\uDFE2 Limitar bater\u00EDa (50% - 80%)");
+            _limitItem = new ToolStripMenuItem();
             _limitItem.Click += (s, e) => ApplyState(true);
 
             _unlimitItem = new ToolStripMenuItem("\uD83D\uDD34 Deslimitar bater\u00EDa (100%)");
             _unlimitItem.Click += (s, e) => ApplyState(false);
+
+            _customItem = new ToolStripMenuItem("\u2699\uFE0F Configurar umbral...");
+            _customItem.Click += (s, e) => PromptCustomThreshold();
 
             _startupItem = new ToolStripMenuItem("Iniciar con Windows");
             _startupItem.Checked = IsStartupEnabled();
@@ -191,6 +194,7 @@ namespace DellBatteryLimiter
 
             menu.Items.Add(_limitItem);
             menu.Items.Add(_unlimitItem);
+            menu.Items.Add(_customItem);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(_startupItem);
             menu.Items.Add(exitItem);
@@ -220,6 +224,75 @@ namespace DellBatteryLimiter
             }
         }
 
+        private void PromptCustomThreshold()
+        {
+            int s = _startPct;
+            int end = _stopPct;
+            if (ShowThresholdDialog(ref s, ref end))
+            {
+                _startPct = s;
+                _stopPct = end;
+                ApplyState(true);
+            }
+        }
+
+        private bool ShowThresholdDialog(ref int startVal, ref int stopVal)
+        {
+            using (Form form = new Form())
+            {
+                form.Text = "Configurar umbral de carga";
+                form.FormBorderStyle = FormBorderStyle.FixedDialog;
+                form.MaximizeBox = false;
+                form.MinimizeBox = false;
+                form.StartPosition = FormStartPosition.CenterScreen;
+                form.ClientSize = new Size(320, 140);
+                form.TopMost = true;
+
+                Label lbl = new Label() { Left = 16, Top = 16, Width = 288, Text = "Porcentaje de carga (ej: 80 o 50-85):" };
+                TextBox tb = new TextBox() { Left = 16, Top = 40, Width = 288, Text = startVal + "-" + stopVal };
+                Label hint = new Label() { Left = 16, Top = 66, Width = 288, Font = new Font(form.Font.FontFamily, 8f), ForeColor = Color.Gray, Text = "Min inicio: 50% | Max fin: 100% | Dif min: 5%" };
+
+                Button btnOk = new Button() { Text = "Aplicar", Left = 136, Width = 80, Top = 96, DialogResult = DialogResult.OK };
+                Button btnCancel = new Button() { Text = "Cancelar", Left = 224, Width = 80, Top = 96, DialogResult = DialogResult.Cancel };
+
+                form.Controls.AddRange(new Control[] { lbl, tb, hint, btnOk, btnCancel });
+                form.AcceptButton = btnOk;
+                form.CancelButton = btnCancel;
+
+                if (form.ShowDialog() == DialogResult.OK)
+                {
+                    string txt = tb.Text.Trim();
+                    int st = 50, sp = 80;
+                    if (txt.Contains("-"))
+                    {
+                        string[] parts = txt.Split('-');
+                        if (parts.Length == 2 && int.TryParse(parts[0].Trim(), out st) && int.TryParse(parts[1].Trim(), out sp))
+                        {
+                            if (st >= 50 && st <= 95 && sp >= 55 && sp <= 100 && (sp - st) >= 5)
+                            {
+                                startVal = st;
+                                stopVal = sp;
+                                return true;
+                            }
+                        }
+                    }
+                    else if (int.TryParse(txt, out sp))
+                    {
+                        if (sp >= 55 && sp <= 100)
+                        {
+                            st = 50;
+                            if (sp - st < 5) st = sp - 5;
+                            startVal = st;
+                            stopVal = sp;
+                            return true;
+                        }
+                    }
+                    MessageBox.Show("Valores inv\u00E1lidos. Inicio debe ser 50-95%, fin 55-100% y diferencia al menos 5%.", "Aviso", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+            }
+            return false;
+        }
+
         private void LoadInitialState()
         {
             if (IsAdministrator() && File.Exists(_cctkExe))
@@ -240,6 +313,7 @@ namespace DellBatteryLimiter
                         {
                             _isLimited = output.IndexOf("Custom", StringComparison.OrdinalIgnoreCase) >= 0
                                       || output.IndexOf("PrimAcUse", StringComparison.OrdinalIgnoreCase) >= 0;
+                            ParseCustomRange(output);
                             SaveStateFile(_isLimited);
                             return;
                         }
@@ -253,7 +327,7 @@ namespace DellBatteryLimiter
                 try
                 {
                     string text = File.ReadAllText(_stateFile).Trim();
-                    _isLimited = !string.Equals(text, "UNLIMITED", StringComparison.OrdinalIgnoreCase);
+                    ParseStateText(text);
                     _lastStateWrite = File.GetLastWriteTimeUtc(_stateFile);
                     return;
                 }
@@ -262,6 +336,43 @@ namespace DellBatteryLimiter
 
             _isLimited = true;
             SaveStateFile(true);
+        }
+
+        private void ParseCustomRange(string output)
+        {
+            int idx = output.IndexOf("Custom:", StringComparison.OrdinalIgnoreCase);
+            if (idx >= 0)
+            {
+                string sub = output.Substring(idx + 7).Trim();
+                string[] parts = sub.Split(new char[] { '-', ' ', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length >= 2)
+                {
+                    int.TryParse(parts[0], out _startPct);
+                    int.TryParse(parts[1], out _stopPct);
+                }
+            }
+        }
+
+        private void ParseStateText(string text)
+        {
+            if (string.Equals(text, "UNLIMITED", StringComparison.OrdinalIgnoreCase))
+            {
+                _isLimited = false;
+            }
+            else
+            {
+                _isLimited = true;
+                if (text.StartsWith("LIMITED:", StringComparison.OrdinalIgnoreCase))
+                {
+                    string r = text.Substring(8).Trim();
+                    string[] parts = r.Split('-');
+                    if (parts.Length == 2)
+                    {
+                        int.TryParse(parts[0], out _startPct);
+                        int.TryParse(parts[1], out _stopPct);
+                    }
+                }
+            }
         }
 
         private void CheckExternalStateChange()
@@ -274,10 +385,11 @@ namespace DellBatteryLimiter
                 {
                     _lastStateWrite = writeTime;
                     string text = File.ReadAllText(_stateFile).Trim();
-                    bool newState = !string.Equals(text, "UNLIMITED", StringComparison.OrdinalIgnoreCase);
-                    if (newState != _isLimited)
+                    bool wasLimited = _isLimited;
+                    int oldStop = _stopPct;
+                    ParseStateText(text);
+                    if (_isLimited != wasLimited || _stopPct != oldStop)
                     {
-                        _isLimited = newState;
                         UpdateTrayVisuals();
                     }
                 }
@@ -285,29 +397,31 @@ namespace DellBatteryLimiter
             catch { }
         }
 
-        private void ApplyState(bool limitTo80)
+        private void ApplyState(bool limitToCustom)
         {
             try
             {
+                string rangeArg = _startPct + "-" + _stopPct;
                 if (IsAdministrator() && File.Exists(_cctkExe))
                 {
-                    string arg = limitTo80 ? "--PrimaryBattChargeCfg=Custom:50-80" : "--PrimaryBattChargeCfg=Adaptive";
+                    string arg = limitToCustom ? ("--PrimaryBattChargeCfg=Custom:" + rangeArg) : "--PrimaryBattChargeCfg=Adaptive";
                     int code = RunCctkDirect(arg);
-                    if (!limitTo80 && code != 0)
+                    if (!limitToCustom && code != 0)
                     {
                         code = RunCctkDirect("--PrimaryBattChargeCfg=Standard");
                     }
                     if (code == 0)
                     {
-                        _isLimited = limitTo80;
+                        _isLimited = limitToCustom;
                         SaveStateFile(_isLimited);
                         UpdateTrayVisuals();
                     }
                 }
                 else
                 {
-                    string script = limitTo80 ? _limitScript : _unlimitScript;
-                    ProcessStartInfo psi = new ProcessStartInfo(script)
+                    string script = limitToCustom ? _limitScript : _unlimitScript;
+                    string args = limitToCustom ? rangeArg : "";
+                    ProcessStartInfo psi = new ProcessStartInfo(script, args)
                     {
                         UseShellExecute = true,
                         Verb = "runas",
@@ -348,7 +462,8 @@ namespace DellBatteryLimiter
         {
             try
             {
-                File.WriteAllText(_stateFile, limited ? "LIMITED" : "UNLIMITED");
+                string val = limited ? ("LIMITED:" + _startPct + "-" + _stopPct) : "UNLIMITED";
+                File.WriteAllText(_stateFile, val);
                 _lastStateWrite = File.GetLastWriteTimeUtc(_stateFile);
             }
             catch { }
@@ -357,9 +472,11 @@ namespace DellBatteryLimiter
         private void UpdateTrayVisuals()
         {
             _notifyIcon.Icon = _isLimited ? _greenIcon : _redIcon;
+            string rangeDesc = _startPct + "% - " + _stopPct + "%";
+            _limitItem.Text = "\uD83D\uDFE2 Limitar bater\u00EDa (" + rangeDesc + ")";
             _notifyIcon.Text = _isLimited
-                ? "\uD83D\uDFE2 Bater\u00EDa Limitada (50-80%) | Click: deslimitar"
-                : "\uD83D\uDD34 Bater\u00EDa Deslimitada (100%) | Click: limitar";
+                ? ("\uD83D\uDFE2 Limitada (" + rangeDesc + ") | Click: alternar")
+                : "\uD83D\uDD34 Deslimitada (100%) | Click: alternar";
             _limitItem.Checked = _isLimited;
             _unlimitItem.Checked = !_isLimited;
         }
@@ -422,5 +539,3 @@ namespace DellBatteryLimiter
         }
     }
 }
-
-

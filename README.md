@@ -1,34 +1,25 @@
 # DellBatteryLimiter
 
-Utilidad ultraligera (~13 KB) para la bandeja del sistema (System Tray) de Windows que permite alternar el límite de carga de batería en notebooks Dell con un solo clic, sin bloatware ni servicios pesados.
+A lightweight Windows system tray utility for Dell laptops that toggles battery charging thresholds (e.g., 50%–80% vs 100%) with a single click.
 
-Utiliza el controlador oficial de Dell (`cctk.exe` de *Dell Command | Configure*) para aplicar los umbrales directamente en el chip de carga (Embedded Controller / BIOS).
+It uses Dell's official `cctk.exe` (*Dell Command | Configure*) to control battery charging thresholds directly in hardware.
 
-## Características
+## Features
 
-- 🟢 **Modo Limitado (50% - 80%)**: Corta la carga al 80% y no vuelve a cargar hasta que baje del 50%. Ideal para usar la laptop enchufada a corriente continua.
-- 🔴 **Modo Deslimitado (100%)**: Carga completa estándar para cuando necesitas salir de viaje.
-- **Sin interfaz visual**: Vive exclusivamente en el área de notificaciones (tray).
-  - **Clic izquierdo**: Alterna al instante entre 🟢 y 🔴.
-  - **Clic derecho**: Menú con opciones explícitas, opción de iniciar con Windows y salir.
-- **Scripts independientes**: Incluye scripts `.cmd` que se pueden ejecutar o anclar al Menú Inicio.
-- **Cero dependencias pesadas**: Escrito en C# nativo y compilable con el compilador que ya incluye Windows (`csc.exe`), sin requerir Visual Studio.
+- 🟢 **Limited Mode**: Stops charging at a set threshold (e.g., 80%) to preserve battery health.
+- 🔴 **Unlimited Mode**: Charges up to 100% when full capacity is needed.
+- ⚙️ **Custom Threshold**: Configure custom start and stop charging percentages directly from the tray.
+- **Single Click**: Left-click the tray icon to toggle between modes instantly.
+- **No GUI overhead**: Runs entirely in the Windows notification area.
 
-## Requisitos
+## Requirements
 
-- Laptop Dell compatible con Dell Command | Configure.
-- `Dell Command | Configure` instalado (`winget install -e --id Dell.CommandConfigure`).
+- Dell laptop with `Dell Command | Configure` installed (`winget install -e --id Dell.CommandConfigure`).
 
-## Compilación
+## Build
 
-Para compilar desde la consola usando el compilador nativo de Windows:
+Compile with Windows' built-in C# compiler:
 
 ```cmd
 build.bat
-```
-
-o manualmente:
-
-```cmd
-C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /nologo /codepage:65001 /target:winexe /optimize+ /out:DellBatteryTray.exe /r:System.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll DellBatteryTray.cs
 ```
